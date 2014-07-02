@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>OSMBuildings Dashboard Example</title>
+
+        <link rel="stylesheet" href="css/bootstrap.min.css" />
+        <link rel="stylesheet" href="css/bootstrap-theme.min.css" />
+        <script src="js/jquery-1.10.2.min.js" type="text/javascript"></script>
+		<script src="js/bootstrap.min.js" type="text/javascript"></script>
+
+
+		<link rel="stylesheet" href="js/leaflet/leaflet.css" />
+		<script type="text/javascript" src="js/leaflet/leaflet.js"></script>
+		<link rel="stylesheet" href="js/leaflet-draw/leaflet.draw.css" />
+		<script type="text/javascript" src="js/leaflet-draw/leaflet.draw.js"></script>
+		<script type="text/javascript" src="js/osmbuildings/OSMBuildings-Leaflet.js"></script>
+		
+		<link rel="stylesheet" type="text/css" href="css/spectrum.css">
+    	<script type="text/javascript" src="js/spectrum.js"></script>
+		<style>
+			#map { height: 650px; }
+		</style>
+		
+		<!--
+			Leaflet/Leaflet · GitHub
+			https://github.com/Leaflet/Leaflet
+			
+			Leaflet/Leaflet.draw · GitHub
+			https://github.com/Leaflet/Leaflet.draw
+
+			kekscom/osmbuildings · GitHub
+			https://github.com/kekscom/osmbuildings
+			
+			bgrins/spectrum · GitHub
+			https://github.com/bgrins/spectrum
+			
+			Plus Bootstrap & jQuery!
+
+		-->
+	</head>
+	<body>
+		<!-- Set your background image here, we'll use this IMG Tag to get the height/width, etc -->
+		<img src="//localhost/bountify/floorplan.png" id="backgroundImage" style="display:none;">
+		<div id="map">
+		</div>
+		<script>
+			// pixel boundaries for the background image (height & width)
+			bounds = getMapBoundaries('backgroundImage');
+			window.console.log(bounds);
+			
+			// instantiate leaflet
+			var map = L.map('map', {
+			  maxZoom: 25,
+			  minZoom: 15,
+			  zoom: 15,
+			  
+			  // set this to true if you want to be able to zoom the map
+			  zoomControl:false
+			});
+			
+			// approximate middle of the image as lat/long: .unproject is a leaflet method to convert pixels to lat/long
+			var midPoint = map.unproject([bounds.width/2,bounds.height/2]);
+			window.console.log(midPoint);
+			
+			// won't load without this
+			map.setView(midPoint,15);
+	
+			// set boundaries of workspace as lat/long: .unproject is a leaflet method to convert pixels to lat/long
+			boundaries = [map.unproject([0,bounds.height]),map.unproject([bounds.width,0])];
+			window.console.log(boundaries);
+			
+			map.setMaxBounds(new L.LatLngBounds(boundaries[0],boundaries[1]));
+			
+			//var bgImage = 'floorplan.png';
+    		var bgImage = $("#backgroundImage").attr('src');
+    		var bgBounds = [boundaries[0],boundaries[1]];
+
+			// this is what sets the image as the background for the map
+			L.imageOverlay(bgImage, bgBounds).addTo(map);
+			
+			// leaflet.draw plugin is a dependency to make this work
+			var drawControl = new L.Control.Draw({
+			    draw: {
+			      polyline: false,
+			      polygon: {
+			        allowIntersection: false,
+			      },
+			      rectangle: {
+			      },
+			      circle: false,
+			      marker: false
+			    }
+			});	
+			
+			// add leaflet.draw to the map
+			map.addControl(drawControl);
+			
+			// instantiate OSMBuildings & add it to the map
+			var osmb = new OSMBuildings(map);
+			
+			// toggle layer so you can show/hide the 3d extrusions
+			L.control.layers({}, { Buildings:osmb }).addTo(map);
+			
+			/*
+				this variable holds the geoJSON; it's reloaded every time a shape is added
+				it's also used for the export geoJSON functionality
+			*/
+			var geoJ = {type:'FeatureCollection',features:[]};
+			
+			// leaflet event that's fired when leaflet.draw is used
+			map.on('draw:created', function(e) {
+				
+				window.console.log('draw started');
+				window.console.log(e);
+				
+				// leaflet method converts object to geoJSON
+				var feat = e.layer.toGeoJSON();
+				
+				// trigger a lightbox to customize the object
+				optionsModal(feat);
+
+			});
+			
+			// grabs the image from the IMG tag & find it's pixel dimensions for conversion into lat/long for the map
+			function getMapBoundaries(mapImageDiv)
+			{
+				bgImage = new Image();
+				bgImage.src = $('#' + mapImageDiv).attr('src');
+				
+				data = new Object();
+				data.width = bgImage.width;
+				data.height = bgImage.height;
+				
+				window.console.log(data.width);
+				window.console.log(data.height);
+				
+				return data;
+			}
+			
+			function optionsModal(geoFeatures)
+			{
+				$('#tmpData').text(JSON.stringify(geoFeatures,null,'\t'));
+				$('#settingsModal').modal('show');
+			}
+			function addObject()
+			{
+				var geoFeatures = JSON.parse($('#tmpData').val()); 
+				window.console.log(geoFeatures)
+				
+				/*
+					here is where we get the height, colors, etc & add it to the geoJSON
+					the variables are determined by OSMBuildings... be sure to grab the latest zip
+					from the GitHub account though; the download on the site has a bug that screws
+					up the colors. Wasted a good two hours fussing with settings & reading the code base
+					trying to get it to work ;x
+				*/
+				
+				geoFeatures.properties = {
+					"wallColor": $('#wallColorInput').val(), 
+					"roofColor": $('#roofColorInput').val(), 
+					"height": parseInt($('#heightInput').val()),
+					"min_height": parseInt($('#minHeightInput').val()),
+					"shadows":true,
+					}
+				
+				// push the newest shape to the geoJSON Object
+				geoJ.features.push(geoFeatures);
+				window.console.log(geoJ);
+				
+				// render it using OSMB to get the 3d extrustions
+				osmb.setData(geoJ,true);
+				$('#settingsModal').modal('hide');
+
+			}			
+			// display a text export of the current map GeoJSON in a modal
+			function exportJSON()
+			{
+				$('#exportData').text(JSON.stringify(geoJ,null,'\t'));
+				$('#exportModal').modal('show');
+			}
+			
+			// show the import modal
+			function showImportJSON()
+			{
+				$('#importModal').modal('show');
+			}
+			
+			// overwrite map area with GeoJSON from import modal
+			function importJSON()
+			{
+				var importData = $('#importData').val();
+				window.console.log(importData);
+				
+				var data = JSON.parse(importData);
+				window.console.log(data);
+				
+				osmb.setData(data,true);
+			}
+
+		</script>
+		
+		<!-- Import/Export Buttons -->
+		<div class="row">
+			<div class="col-sm-12">
+				<button class="btn btn-primary" type="button" onclick="javascript:showImportJSON();">Import GeoJSON</button>
+				<button class="btn btn-default" type="button" onclick="javascript:exportJSON();">Export GeoJSON</button>
+			</div>
+		</div>
+		<!-- End Import/Export Buttons -->
+		
+		<!-- Export Modal -->
+		<div class="modal fade" id="exportModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+			<div class="modal-dialog">
+				<div class="modal-content">
+					<div class="modal-header">
+						<button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+						<h4 class="modal-title" id="myModalLabel">GeoJSON for Current Map</h4>
+					</div>
+					<div class="modal-body">
+						<textarea id="exportData" style="width:100%; height:150px;"></textarea>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<!-- End Export Modal -->
+		<!-- Import Modal -->
+		<div class="modal fade" id="importModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+			<div class="modal-dialog">
+				<div class="modal-content">
+					<div class="modal-header">
+						<button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+						<h4 class="modal-title" id="myModalLabel">Load GeoJSON  Map</h4>
+					</div>
+					<div class="modal-body">
+						<textarea id="importData" style="width:100%; height:150px;"></textarea>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+						<button type="button" class="btn btn-primary" onclick="javascript:importJSON();">Save changes</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<!-- End Import Modal -->
+		
+		<!-- Settings Modal -->
+		<div class="modal fade" id="settingsModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+			<div class="modal-dialog">
+				<div class="modal-content">
+					<div class="modal-header">
+						<button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+						<h4 class="modal-title" id="myModalLabel">GeoJSON for Current Map</h4>
+					</div>
+					<div class="modal-body">
+						<div class="form-group">
+							<label for="wallColorInput">Select Wall Color: </label>&nbsp; <input type="color" id="wallColorInput" />
+						</div>
+						<div class="form-group">
+							<label for="roofColorInput">Select Roof Color: </label>&nbsp; <input type="color" id="roofColorInput" />
+						</div>
+						<div class="form-group">
+							<label for="heightInput">Set Object Height: </label>&nbsp; <input type="text" id="heightInput" value="50" />
+						</div>
+						<div class="form-group">
+							<label for="minHeightInput">Set Min Height(<small>Used to stack objects for complex designs</small>): </label>&nbsp; <input type="text" id="minHeightInput" value="0" />
+						</div>
+						
+						<textarea id="tmpData" class="hidden"></textarea>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+						<button type="button" class="btn btn-primary" onclick="javascript:addObject();">Save changes</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<!-- Settings Modal -->
+	</body>
+</html>
